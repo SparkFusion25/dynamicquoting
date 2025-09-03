@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSV Quote Tool — Day-1 Lite</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root{
+    --bg:#f6f8fc; --panel:#fff; --ink:#12141a; --muted:#616779;
+    --grid:#e6e9f2; --accent:#1d3e8a; --accent2:#5b33ff;
+    --ok:#157347; --warn:#b07600; --bad:#b02a37; --chip:#eef2ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:var(--ink);background:linear-gradient(180deg,#f9fbff,#f1f4fb)}
+  header{position:sticky;top:0;z-index:10;background:linear-gradient(90deg,#0e2454,#1a3a85);color:#fff;
+    padding:12px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 12px rgba(0,0,0,.12)}
+  header .brand{font-weight:900;letter-spacing:.3px;background:linear-gradient(135deg,#fff,#d8e3ff);
+    -webkit-background-clip:text;background-clip:text;color:transparent;font-size:16px}
+  header .right{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+  button{border:1px solid var(--grid);background:#fff;border-radius:10px;padding:8px 12px;cursor:pointer}
+  button.primary{border:none;background:linear-gradient(135deg,#254a9e,#5631d7);color:#fff;font-weight:700;box-shadow:0 10px 20px rgba(29,62,138,.25)}
+  main{max-width:1200px;margin:16px auto 80px;padding:0 14px}
+  .panel{background:var(--panel);border:1px solid var(--grid);border-radius:12px;padding:14px;box-shadow:0 8px 28px rgba(29,62,138,.07);margin-bottom:12px}
+  .panel h2{margin:2px 0 10px;font-size:15px;color:var(--accent);display:flex;align-items:center;gap:8px}
+  .tag{background:var(--chip);border:1px solid var(--grid);padding:2px 8px;border-radius:999px;color:var(--muted);font-size:12px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .row3{display:grid;grid-template-columns:1.2fr .9fr .9fr;gap:14px}
+  @media (max-width:1000px){.row,.row3{grid-template-columns:1fr}}
+  label{display:block;font-size:12px;color:var(--muted);margin:8px 0 4px}
+  input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--grid);border-radius:10px;background:#fff;outline:none}
+  input:focus,select:focus,textarea:focus{border-color:#2d56b3;box-shadow:0 0 0 3px rgba(45,86,179,.2)}
+  textarea{min-height:96px;resize:vertical}
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+  table.grid{width:100%;border-collapse:collapse}
+  .grid th,.grid td{border-bottom:1px dashed var(--grid);padding:8px 6px;text-align:left;vertical-align:top}
+  .grid th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+  .right{text-align:right}
+  .kpi{background:linear-gradient(180deg,#fff,#f3f6ff);border:1px solid var(--grid);border-radius:12px;padding:10px 12px}
+  .kpi .label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.3px}
+  .kpi .value{font-size:18px;font-weight:800;margin-top:2px}
+  .totals{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  @media (max-width:900px){.totals{grid-template-columns:1fr 1fr}}
+  .small{font-size:12px;color:#5e6677}
+  .muted{color:#6a7184}
+  .chipline{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{background:#eef2ff;border:1px solid var(--grid);border-radius:999px;padding:4px 8px;font-size:12px}
+  .warn{color:var(--warn)} .ok{color:var(--ok)} .bad{color:var(--bad)}
+  #map{height:360px;border:1px solid var(--grid);border-radius:12px}
+  .quote-preview{background:#fff;border:1px solid var(--grid);border-radius:12px;padding:12px}
+  .quote-table{width:100%;border-collapse:collapse}
+  .quote-table th,.quote-table td{border-bottom:1px solid #eaeefa;padding:8px 6px}
+  .noprint{}
+  @media print{header,.noprint{display:none!important}}
+  /* Role view: hide cost/margin in seller mode */
+  body.seller #freightTable th:nth-child(4), body.seller #freightTable td:nth-child(4),
+  body.seller #chargeTable th:nth-child(4), body.seller #chargeTable td:nth-child(4),
+  body.seller #totalsWrap th:nth-child(3), body.seller #totalsWrap td:nth-child(3),
+  body.seller #totalsWrap th:nth-child(5), body.seller #totalsWrap td:nth-child(5),
+  body.seller #totalsWrap th:nth-child(7), body.seller #totalsWrap td:nth-child(7),
+  body.seller #totalsWrap th:nth-child(8), body.seller #totalsWrap td:nth-child(8),
+  body.seller #auditTable th:nth-child(3), body.seller #auditTable td:nth-child(3),
+  body.seller #auditTable th:nth-child(5), body.seller #auditTable td:nth-child(5),
+  body.seller #auditTable th:nth-child(7), body.seller #auditTable td:nth-child(7){display:none!important}
+  /* print-friendly quoteHtml */
+  @media print{#quoteHtml{page-break-inside:auto}}
+  .nobr{white-space:nowrap}
+  .right input{ text-align:right }
+  input[type="date"]{ font-family:inherit }
+  pre.small{white-space:pre-wrap}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">DSV</div>
+  <div class="right">
+    <button class="primary" onclick="exportPDF()">Export PDF Quote</button>
+    <button onclick="exportQuote()">Export HTML Quote</button>
+    <button onclick="composeEmailHtml()">Compose Email</button>
+  </div>
+</header>
+
+<main>
+  <!-- Role selector -->
+  <section class="panel">
+    <h2>User role & visibility <span class="tag">UI-only guard</span></h2>
+    <div class="row">
+      <div>
+        <label>Role view</label>
+        <select id="userRole">
+          <option value="analyst">Pricing analyst (show costs & margin)</option>
+          <option value="seller">Seller (hide costs)</option>
+        </select>
+      </div>
+      <div>
+        <label>Passcode (optional, for analyst)</label>
+        <input id="rolePass" type="password" placeholder="Enter shared code">
+      </div>
+    </div>
+    <div class="toolbar">
+      <button onclick="applyRole()">Apply role</button>
+    </div>
+    <div class="small muted">Note: This is not real security — just a screen-share guard. For true logins and gated links, use Phase-2.</div>
+  </section>
+
+  <!-- Branding -->
+  <section class="panel">
+    <h2>Branding & quote header</h2>
+    <div class="row">
+      <div>
+        <label>Brand name</label><input id="brandName" placeholder="DSV">
+        <label>Logo URL (optional)</label><input id="logoUrl" placeholder="https://...">
+        <label>Logo upload (PNG/JPG)</label><input id="logoFile" type="file" accept=".png,.jpg,.jpeg">
+      </div>
+      <div>
+        <label>Signer name</label><input id="sigName" placeholder="Your Name">
+        <label>Signer title</label><input id="sigTitle" placeholder="Title">
+        <label>Signature image (PNG/JPG)</label><input id="sigFile" type="file" accept=".png,.jpg,.jpeg">
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Shipment basics <span class="tag">who + where + when</span></h2>
+    <div class="row">
+      <div>
+        <label>Customer</label><input id="customer" placeholder="Company / Contact">
+        <label>Reference</label><input id="reference" placeholder="RFQ/Ref">
+        <div class="row">
+          <div><label>Origin</label><input id="origin" placeholder="IST, TR or IST"></div>
+          <div><label>Destination</label><input id="destination" placeholder="ATL, US or Atlanta,GA"></div>
+        </div>
+        <div class="row">
+          <div><label>Incoterms</label>
+            <select id="incoterms">
+              <option>EXW</option><option>FCA</option><option>FOB</option><option>CPT</option>
+              <option>CIP</option><option>DAP</option><option>DDP</option>
+            </select>
+          </div>
+          <div><label>Mode</label>
+            <select id="mode"><option value="air">Air</option><option value="ocean">Ocean</option><option value="ftl">FTL (Truckload)</option></select>
+          </div>
+        </div>
+        <div class="row">
+          <div><label>Validity through</label><input id="validUntil" type="date"></div>
+          <div><label>FTL miles (optional, auto from map)</label><input id="miles" type="number" step="1" placeholder="autofill"></div>
+        </div>
+      </div>
+      <div>
+        <label>Public notes (printed on quote)</label><textarea id="publicNotes" placeholder="Transit, validity, service notes"></textarea>
+        <label>Included</label><textarea id="included" placeholder="Pickup, export docs, security, ..."></textarea>
+        <label>Excluded</label><textarea id="excluded" placeholder="Duties/taxes, storage, inspection, ..."></textarea>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Cargo details <span class="tag">auto chargeable</span></h2>
+    <div class="row3">
+      <div>
+        <div class="row">
+          <div><label>Pieces</label><input id="pieces" type="number" value="1" min="1"></div>
+          <div><label>Actual weight (kg)</label><input id="actualKg" type="number" step="0.01" value="285"></div>
+          <div><label>Total volume (CBM)</label><input id="cbm" type="number" step="0.0001" value="1.473"></div>
+        </div>
+        <div class="row">
+          <div><label>Air volumetric factor</label>
+            <select id="airFactor">
+              <option value="167">167 kg/CBM (IATA)</option>
+              <option value="200">200 kg/CBM</option>
+              <option value="250">250 kg/CBM</option>
+            </select>
+          </div>
+          <div><label>Auto chargeable</label><div class="kpi"><div class="value"><span id="autoCw">—</span> kg</div></div></div>
+          <div><label>Chargeable override (kg)</label><input id="cwOverride" type="number" step="0.01" placeholder="e.g. 470"></div>
+        </div>
+        <div class="row">
+          <div><label>Piece L (cm)</label><input id="lenCm" type="number" step="0.1" value="104"></div>
+          <div><label>Piece W (cm)</label><input id="widCm" type="number" step="0.1" value="322"></div>
+          <div><label>Piece H (cm)</label><input id="htCm" type="number" step="0.1" value="44"></div>
+        </div>
+        <div class="small muted">Tip: enter piece dims to auto-calc CBM, or type total CBM directly.</div>
+      </div>
+      <div>
+        <h3>EXW tiers (optional)</h3>
+        <table class="grid" id="exwTierTable">
+          <thead><tr><th>Min kg</th><th>Max kg</th><th>Rate $/kg</th><th>Min $</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="toolbar"><button onclick="addExwTier()">Add tier</button><button onclick="clearExwTier()">Clear</button></div>
+      </div>
+      <div>
+        <h3>Derived</h3>
+        <div class="totals">
+          <div class="kpi"><div class="label">Auto chargeable</div><div class="value"><span id="kpiAutoCw">—</span> kg</div></div>
+          <div class="kpi"><div class="label">CBM (from dims)</div><div class="value"><span id="kpiCbmFromDims">—</span> cbm</div></div>
+          <div class="kpi"><div class="label">Density</div><div class="value"><span id="kpiDensity">—</span> kg/cbm</div></div>
+          <div class="kpi"><div class="label">Using chargeable</div><div class="value"><span id="kpiUsingCw">—</span></div></div>
+        </div>
+        <div class="chipline" id="warnings"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Map & distance <span class="tag">air great-circle + truck estimate</span></h2>
+    <div class="toolbar"><button onclick="updateMap()">Update map</button></div>
+    <div id="map"></div>
+    <div class="totals" style="margin-top:8px">
+      <div class="kpi"><div class="label">Great-circle (air)</div><div class="value"><span id="kpiAirDist">—</span> mi</div></div>
+      <div class="kpi"><div class="label">Road estimate</div><div class="value"><span id="kpiRoadDist">—</span> mi</div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Paste quote text <span class="tag">auto-parse common patterns</span></h2>
+    <textarea id="pasteText" placeholder="Paste customer email or internal notes..."></textarea>
+    <div class="toolbar">
+      <button onclick="parsePastedQuote()">Parse & fill</button>
+      <button onclick="document.getElementById('pasteText').value=''">Clear</button>
+    </div>
+    <div id="parseNotes" class="small muted"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Freight options <span class="tag">multi-option compare</span></h2>
+    <div class="toolbar">
+      <button onclick="addFreight()">Add option</button>
+      <button onclick="importFreightPaste()">Paste CSV/JSON</button>
+      <button onclick="clearFreight()">Clear</button>
+    </div>
+    <table class="grid" id="freightTable">
+      <thead><tr><th>Label</th><th>Unit</th><th class="right">Sell</th><th class="right">Cost</th><th>Transit</th><th>Depart</th><th>Notes</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Surcharges / locals</h2>
+    <div class="toolbar">
+      <button onclick="addCharge()">Add line</button>
+      <button onclick="importChargesPaste()">Paste CSV/JSON</button>
+      <button onclick="clearCharges()">Clear</button>
+      <button onclick="loadExampleCharges()">Load example</button>
+    </div>
+    <table class="grid" id="chargeTable">
+      <thead><tr><th>Label</th><th>Unit</th><th class="right">Sell</th><th class="right">Cost</th><th class="right">Min</th><th>Applies to</th><th>Notes</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Pricing rules <span class="tag">target margin / $ per kg</span></h2>
+    <div class="row">
+      <div><label>Target margin %</label><input id="targetMargin" type="number" step="0.1" placeholder="e.g. 18"></div>
+      <div><label>Markup $/kg (adds to freight cost)</label><input id="markupPerKg" type="number" step="0.01" placeholder="e.g. 0.30"></div>
+      <div><label>Apply to</label>
+        <select id="pricingScope"><option value="freight">Freight only</option><option value="both">Freight + surcharges</option></select>
+      </div>
+    </div>
+    <div class="toolbar">
+      <button class="primary" onclick="applyPricingRules()">Apply pricing</button>
+      <button onclick="clearPricing()">Clear</button>
+    </div>
+    <div class="small muted">Tip: Set $/kg for a quick sanity check; use margin% to hit a target across your cost base.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Totals and profit</h2>
+    <div class="chipline">
+      <div class="chip">Mode: <b id="chipMode">air</b></div>
+      <div class="chip">Chargeable: <b id="chipCw">—</b> kg</div>
+      <div class="chip">CBM: <b id="chipCbm">—</b></div>
+      <div class="chip">Actual: <b id="chipActual">—</b> kg</div>
+      <div class="chip">Valid through: <b id="chipValid">—</b></div>
+    </div>
+    <div id="totalsWrap" style="margin-top:8px"></div>
+    <div class="quote-preview" style="margin-top:8px">
+      <h3>Customer-facing quote preview</h3>
+      <div id="quoteHtml"></div>
+    </div>
+    <div class="toolbar">
+      <button class="primary" onclick="exportPDF()">Export PDF Quote</button>
+      <button onclick="exportQuote()">Export HTML Quote</button>
+      <button onclick="composeEmailHtml()">Compose Email</button>
+      <button onclick="saveLocal()">Save draft</button>
+      <button onclick="loadLocal()">Load draft</button>
+      <button onclick="clearLocal()">Clear saved</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Profit auditor</h2>
+    <table class="grid" id="auditTable">
+      <thead><tr><th>Option</th><th class="right">Freight sell</th><th class="right">Freight cost</th><th class="right">Locals sell</th><th class="right">Locals cost</th><th class="right">Total sell</th><th class="right">Total cost</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel noprint">
+    <h2>Paste import templates</h2>
+    <div class="row">
+      <div>
+        <b>Freight CSV</b>
+        <pre class="small">
+label,unit,rate_sell,rate_cost,tt,depart,notes
+Fastest,per_kg,6.20,2.60,Direct 2d,2025-09-05,AF direct
+Standard,per_kg,4.55,2.50,5d,2025-09-06,TK std
+Economy,per_kg,2.95,1.80,7d,,Truck+Air
+        </pre>
+      </div>
+      <div>
+        <b>Surcharges CSV</b>
+        <pre class="small">
+label,unit,rate_sell,rate_cost,min,applies_to,notes
+EXW pickup,per_kg,0.13,0.08,320,all,Pickup+export+docs+security
+Door delivery,per_kg,0.45,0.30,180,all,Adairsville GA
+Airport transfer,per_kg,0.30,0.20,0,all,
+Airline handling,flat,280,220,0,all,Per shipment
+US import handling,flat,95,75,0,all,Per shipment
+        </pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+  // ---------- Helpers
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
+  const num = (v,d=0)=>{ if(v==null || v==='') return d; const n=+v; return isFinite(n)?n:d; };
+  const money = v => '$' + (Math.round(v*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  const kgfmt = v => (Math.round(v*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  const today = ()=> new Date().toISOString().slice(0,10);
+
+  // ---------- Role view
+  function applyRole(){
+    const role = $('#userRole').value;
+    const code = $('#rolePass').value.trim();
+    if(role==='analyst' && code && code !== 'DSV-ANALYST'){
+      alert('Incorrect passcode for Analyst. Staying in Seller view.');
+      $('#userRole').value = 'seller';
+    }
+    document.body.classList.toggle('seller', $('#userRole').value==='seller');
+    render();
+  }
+
+  // ---------- Cargo math
+  function recomputeCargo(){
+    const pieces = num($('#pieces').value,1);
+    const actualKg = num($('#actualKg').value,0);
+    let cbm = num($('#cbm').value,0);
+    const lenCm = num($('#lenCm').value,0), widCm = num($('#widCm').value,0), htCm = num($('#htCm').value,0);
+    const factor = num($('#airFactor').value,167);
+    const cwOverride = num($('#cwOverride').value,0);
+
+    let calcCbm = 0;
+    if(lenCm && widCm && htCm && pieces){
+      calcCbm = (lenCm/100)*(widCm/100)*(htCm/100)*pieces;
+      $('#kpiCbmFromDims').textContent = calcCbm.toFixed(3);
+    } else $('#kpiCbmFromDims').textContent = '—';
+
+    if(!cbm && calcCbm) cbm = calcCbm;
+    const autoCw = Math.max(actualKg, cbm*factor);
+    $('#autoCw').textContent = kgfmt(autoCw);
+    $('#kpiAutoCw').textContent = kgfmt(autoCw);
+    $('#kpiDensity').textContent = cbm? (actualKg/cbm).toFixed(1):'—';
+    $('#kpiUsingCw').textContent = cwOverride? kgfmt(cwOverride)+' (override)' : kgfmt(autoCw);
+    $('#chipCw').textContent = cwOverride? kgfmt(cwOverride) : kgfmt(autoCw);
+    $('#chipCbm').textContent = cbm? cbm.toFixed(3) : '—';
+    $('#chipActual').textContent = kgfmt(actualKg);
+    const v = $('#validUntil').value; $('#chipValid').textContent = v||'—';
+
+    // warnings
+    const warns = [];
+    if(autoCw < actualKg && !cwOverride) warns.push('Chargeable < actual — check factor/CBM');
+    if(cwOverride && cwOverride < actualKg) warns.push('Override < actual — verify');
+    $('#warnings').innerHTML = warns.map(x=>`<div class="chip warn">${x}</div>`).join('');
+
+    return {pieces, actualKg, cbm, factor, autoCw, cw: cwOverride || autoCw};
+  }
+  ['pieces','actualKg','cbm','lenCm','widCm','htCm','airFactor','cwOverride','validUntil'].forEach(id=>{
+    $('#'+id).addEventListener('input', ()=>{ recomputeCargo(); render(); });
+  });
+
+  // ---------- EXW tiers
+  const exwTiers = [];
+  function addExwTier(min=0,max=999999,rate=0,minCharge=0){ exwTiers.push({min,max,rate,minCharge}); renderExw(); }
+  function clearExwTier(){ exwTiers.length=0; renderExw(); render(); }
+  function renderExw(){
+    const tb = $('#exwTierTable tbody'); tb.innerHTML='';
+    exwTiers.forEach((t,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+      <td><input type="number" value="${t.min}" onchange="exwTiers[${i}].min=num(this.value,0); render();"></td>
+      <td><input type="number" value="${t.max}" onchange="exwTiers[${i}].max=num(this.value,0); render();"></td>
+      <td><input class="right" type="number" step="0.01" value="${t.rate}" onchange="exwTiers[${i}].rate=num(this.value,0); render();"></td>
+      <td><input class="right" type="number" step="0.01" value="${t.minCharge}" onchange="exwTiers[${i}].minCharge=num(this.value,0); render();"></td>
+      <td><button onclick="exwTiers.splice(${i},1); renderExw(); render();">✕</button></td>`;
+      tb.appendChild(tr);
+    });
+  }
+  function effectiveExwRate(cw){
+    if(exwTiers.length===0) return null;
+    for(const t of exwTiers){ if(cw>=t.min && cw<=t.max) return {rate:t.rate,minCharge:t.minCharge||0}; }
+    const last = exwTiers[exwTiers.length-1]; return {rate:last.rate,minCharge:last.minCharge||0};
+  }
+
+  // ---------- Freight & charges
+  const freight = [], charges = [];
+  function addFreight(item){
+    freight.push(Object.assign({label:'Option',unit:'per_kg',rate_sell:0,rate_cost:0,tt:'',depart:'',notes:''},item||{})); renderFreight();
+  }
+  function clearFreight(){ freight.length=0; renderFreight(); render(); }
+  function renderFreight(){
+    const tb = $('#freightTable tbody'); tb.innerHTML='';
+    freight.forEach((r,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+      <td><input value="${r.label}" onchange="freight[${i}].label=this.value; render();"></td>
+      <td><select onchange="freight[${i}].unit=this.value; render();">
+        <option value="per_kg" ${r.unit==='per_kg'?'selected':''}>$/kg</option>
+        <option value="per_cbm" ${r.unit==='per_cbm'?'selected':''}>$/cbm</option>
+        <option value="flat" ${r.unit==='flat'?'selected':''}>Flat $</option>
+        <option value="per_mile" ${r.unit==='per_mile'?'selected':''}>$/mile</option>
+        <option value="per_container" ${r.unit==='per_container'?'selected':''}>$/container</option>
+      </select></td>
+      <td class="right"><input class="right" type="number" step="0.01" value="${r.rate_sell}" onchange="freight[${i}].rate_sell=num(this.value,0); render();"></td>
+      <td class="right"><input class="right" type="number" step="0.01" value="${r.rate_cost}" onchange="freight[${i}].rate_cost=num(this.value,0); render();"></td>
+      <td><input value="${r.tt}" onchange="freight[${i}].tt=this.value; render();"></td>
+      <td><input value="${r.depart}" onchange="freight[${i}].depart=this.value; render();"></td>
+      <td><input value="${r.notes}" onchange="freight[${i}].notes=this.value; render();"></td>
+      <td><button onclick="freight.splice(${i},1); renderFreight(); render();">✕</button></td>`;
+      tb.appendChild(tr);
+    });
+    render();
+  }
+  function addCharge(item){
+    charges.push(Object.assign({label:'Charge',unit:'per_kg',rate_sell:0,rate_cost:0,min:0,applies_to:'all',notes:''},item||{})); renderCharges();
+  }
+  function clearCharges(){ charges.length=0; renderCharges(); render(); }
+  function renderCharges(){
+    const tb = $('#chargeTable tbody'); tb.innerHTML='';
+    charges.forEach((r,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+      <td><input value="${r.label}" onchange="charges[${i}].label=this.value; render();"></td>
+      <td><select onchange="charges[${i}].unit=this.value; render();">
+        <option value="per_kg" ${r.unit==='per_kg'?'selected':''}>$/kg</option>
+        <option value="per_cbm" ${r.unit==='per_cbm'?'selected':''}>$/cbm</option>
+        <option value="flat" ${r.unit==='flat'?'selected':''}>Flat $</option>
+        <option value="per_mile" ${r.unit==='per_mile'?'selected':''}>$/mile</option>
+      </select></td>
+      <td class="right"><input class="right" type="number" step="0.01" value="${r.rate_sell}" onchange="charges[${i}].rate_sell=num(this.value,0); render();"></td>
+      <td class="right"><input class="right" type="number" step="0.01" value="${r.rate_cost}" onchange="charges[${i}].rate_cost=num(this.value,0); render();"></td>
+      <td class="right"><input class="right" type="number" step="0.01" value="${r.min}" onchange="charges[${i}].min=num(this.value,0); render();"></td>
+      <td><input value="${r.applies_to}" placeholder="all or labels csv" onchange="charges[${i}].applies_to=this.value; render();"></td>
+      <td><input value="${r.notes}" onchange="charges[${i}].notes=this.value; render();"></td>
+      <td><button onclick="charges.splice(${i},1); renderCharges(); render();">✕</button></td>`;
+      tb.appendChild(tr);
+    });
+    render();
+  }
+  function importFreightPaste(){
+    const raw = prompt('Paste CSV or JSON (keys: label,unit,rate_sell,rate_cost,tt,depart,notes)'); if(!raw) return;
+    try{
+      const rows = raw.trim().startsWith('[')? JSON.parse(raw) : parseCSV(raw);
+      rows.forEach(r=> addFreight(r));
+    }catch(e){ alert('Parse error: '+e.message); }
+  }
+  function importChargesPaste(){
+    const raw = prompt('Paste CSV or JSON (keys: label,unit,rate_sell,rate_cost,min,applies_to,notes)'); if(!raw) return;
+    try{
+      const rows = raw.trim().startsWith('[')? JSON.parse(raw) : parseCSV(raw);
+      rows.forEach(r=> addCharge(r));
+    }catch(e){ alert('Parse error: '+e.message); }
+  }
+  function parseCSV(text){
+    const lines = text.trim().split(/\r?\n/); const headers = lines.shift().split(',').map(s=>s.trim());
+    return lines.map(line=>{
+      const cells=[]; let cur=''; let q=false;
+      for(let i=0;i<line.length;i++){ const ch=line[i];
+        if(ch=='"'){ if(q && line[i+1]=='"'){ cur+='"'; i++; } else q=!q; }
+        else if(ch==',' && !q){ cells.push(cur); cur=''; }
+        else cur+=ch;
+      } cells.push(cur);
+      const obj={}; headers.forEach((h,i)=> obj[h]=cells[i]?.trim());
+      ['rate_sell','rate_cost','min'].forEach(k=>{ if(obj[k]!=null) obj[k]=+obj[k]; });
+      return obj;
+    });
+  }
+
+  // ---------- Pricing rules
+  function clearPricing(){ $('#targetMargin').value=''; $('#markupPerKg').value=''; renderFreight(); }
+  function applyPricingRules(){
+    const m = num($('#targetMargin').value,0)/100;
+    const mk = num($('#markupPerKg').value,0);
+    const scope = $('#pricingScope').value;
+    const cargo = recomputeCargo(); const cw = cargo.cw, cbm=cargo.cbm||0; const miles=num($('#miles').value,0);
+
+    if(mk>0){
+      freight.forEach(f=>{ if(f.unit==='per_kg'){ f.rate_sell = +(num(f.rate_cost,0)+mk).toFixed(2); } });
+    }
+    if(m>0){
+      freight.forEach(f=>{
+        let qty=1; if(f.unit==='per_kg') qty=cw; else if(f.unit==='per_cbm') qty=cbm; else if(f.unit==='per_mile') qty=miles;
+        const freightCost = computeLine(f.unit,num(f.rate_cost,0),0,qty);
+        // locals
+        let surSell=0, surCost=0;
+        const lines = [...charges];
+        const exw = effectiveExwRate(cw);
+        if(exw && !charges.some(c=>c.label.toLowerCase().includes('exw'))){
+          lines.push({label:'EXW (auto tier)',unit:'per_kg',rate_sell:exw.rate,rate_cost:exw.rate,min:exw.minCharge,applies_to:'all'});
+        }
+        lines.forEach(c=>{
+          if(!appliesTo(c.applies_to, f.label)) return;
+          let q=1; if(c.unit==='per_kg') q=cw; else if(c.unit==='per_cbm') q=cbm; else if(c.unit==='per_mile') q=miles;
+          surSell += computeLine(c.unit,num(c.rate_sell,0),num(c.min,0),q);
+          surCost += computeLine(c.unit,num(c.rate_cost,0),num(c.min,0),q);
+        });
+        const totalCost = scope==='both' ? (freightCost + surCost) : freightCost;
+        const otherSell = scope==='both' ? 0 : surSell;
+        const targetTotalSell = totalCost>0 ? (totalCost/(1-m)) : 0;
+        const neededFreightSell = Math.max(0, targetTotalSell - otherSell);
+        let newRate = f.rate_sell;
+        if(f.unit==='per_kg' && cw>0) newRate = neededFreightSell/cw;
+        else if(f.unit==='per_cbm' && cbm>0) newRate = neededFreightSell/cbm;
+        else if(f.unit==='per_mile' && miles>0) newRate = neededFreightSell/miles;
+        else if(f.unit==='flat' || f.unit==='per_container') newRate = neededFreightSell;
+        f.rate_sell = +newRate.toFixed(2);
+      });
+    }
+    renderFreight();
+  }
+
+  // ---------- Totals
+  function computeLine(unit, rate, minVal, qty){
+    let amt=0;
+    if(unit==='flat') amt = rate;
+    else amt = rate * (qty||0);
+    if(minVal && amt < minVal) amt = minVal;
+    return amt;
+  }
+  function appliesTo(applies,label){
+    if(!applies || applies==='all') return true;
+    const list = applies.split(',').map(s=>s.trim().toLowerCase());
+    return list.includes((label||'').toLowerCase());
+  }
+  function render(){
+    const cargo = recomputeCargo(); const cw=cargo.cw, cbm=cargo.cbm||0;
+    $('#chipMode').textContent = $('#mode').value;
+    const wrap = $('#totalsWrap'); wrap.innerHTML='';
+    const table = document.createElement('table'); table.className='grid';
+    table.innerHTML = `<thead><tr>
+      <th>Option</th><th class="right">Freight sell</th><th class="right">Freight cost</th>
+      <th class="right">Surcharges sell</th><th class="right">Surcharges cost</th>
+      <th class="right">Total sell</th><th class="right">Total cost</th><th class="right">Profit</th><th class="right">Margin</th>
+    </tr></thead>`;
+    const tb = document.createElement('tbody');
+
+    const miles = num($('#miles').value,0);
+
+    const options = [];
+    const lines = [...charges];
+    const exw = effectiveExwRate(cw);
+    if(exw && !charges.some(c=>c.label.toLowerCase().includes('exw'))){
+      lines.push({label:'EXW (auto tier)',unit:'per_kg',rate_sell:exw.rate,rate_cost:exw.rate,min:exw.minCharge,applies_to:'all'});
+    }
+
+    if(freight.length===0){
+      tb.innerHTML = `<tr><td colspan="9" class="muted">Add a freight option to see totals.</td></tr>`;
+    } else {
+      freight.forEach(f=>{
+        let qty=1; if(f.unit==='per_kg') qty=cw; else if(f.unit==='per_cbm') qty=cbm; else if(f.unit==='per_mile') qty=miles; else if(f.unit==='per_container') qty=1;
+        const freightSell = computeLine(f.unit,num(f.rate_sell,0),0,qty);
+        const freightCost = computeLine(f.unit,num(f.rate_cost,0),0,qty);
+        let surSell=0, surCost=0;
+        lines.forEach(c=>{
+          if(!appliesTo(c.applies_to,f.label)) return;
+          let q=1; if(c.unit==='per_kg') q=cw; else if(c.unit==='per_cbm') q=cbm; else if(c.unit==='per_mile') q=miles;
+          surSell += computeLine(c.unit,num(c.rate_sell,0),num(c.min,0),q);
+          surCost += computeLine(c.unit,num(c.rate_cost,0),num(c.min,0),q);
+        });
+        const totSell = freightSell + surSell;
+        const totCost = freightCost + surCost;
+        const profit = totSell - totCost;
+        const margin = totSell>0? (profit/totSell):0;
+        options.push({label:f.label,freightSell,freightCost,surSell,surCost,totSell,totCost,profit,margin,tt:f.tt,depart:f.depart,notes:f.notes});
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td><b>${f.label}</b><div class="small">${f.tt||''}${f.depart? ' · Depart '+f.depart:''}</div></td>
+          <td class="right">${money(freightSell)}</td>
+          <td class="right">${money(freightCost)}</td>
+          <td class="right">${money(surSell)}</td>
+          <td class="right">${money(surCost)}</td>
+          <td class="right"><b>${money(totSell)}</b></td>
+          <td class="right">${money(totCost)}</td>
+          <td class="right ${profit>=0?'ok':'bad'}">${money(profit)}</td>
+          <td class="right ${(margin>=0.15)?'ok':(margin>=0.07?'warn':'bad')}">${(margin*100).toFixed(1)}%</td>`;
+        tb.appendChild(tr);
+      });
+    }
+    table.appendChild(tb); wrap.appendChild(table);
+    buildQuotePreview(options, cargo);
+    renderAudit(options);
+  }
+
+  function buildQuotePreview(options,cargo){
+    const brandName = $('#brandName').value||'DSV';
+    const logoUrl = (window._logoData || $('#logoUrl').value || '');
+    const v = $('#validUntil').value;
+    let html = '';
+    html += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">` +
+      (logoUrl? `<img src="${logoUrl}" alt="logo" style="height:22px">` : `<div style="font-weight:900;color:#0e1f49">${brandName}</div>`) +
+      `<div style="margin-left:auto;color:#667;font-size:12px">Date: ${today()}</div></div>`;
+    html += `<div class="small">To: <b>${$('#customer').value||'Customer'}</b>${$('#reference').value? ' · Ref: '+$('#reference').value:''}</div>`;
+    html += `<div class="small">Lane: ${$('#origin').value||''} → ${$('#destination').value||''} · Incoterms: ${$('#incoterms').value}</div>`;
+    html += `<div class="small">Cargo: ${cargo.pieces} pcs · ${kgfmt(cargo.actualKg)} kg actual · ${(cargo.cbm||0).toFixed? (cargo.cbm).toFixed(3):cargo.cbm} cbm · Chargeable used: ${kgfmt(cargo.cw)} kg${v? ' · Valid through '+v:''}</div>`;
+    html += `<table class="quote-table" style="margin-top:8px"><thead><tr><th>Option</th><th class="right">Total</th><th>Transit</th><th>Depart</th><th>Notes</th></tr></thead><tbody>`;
+    options.forEach(o=> html += `<tr><td><b>${o.label}</b></td><td class="right"><b>${money(o.totSell)}</b></td><td>${o.tt||''}</td><td>${o.depart||''}</td><td>${o.notes||''}</td></tr>`);
+    html += `</tbody></table>`;
+    const inc = ($('#included').value||'').trim(), exc = ($('#excluded').value||'').trim(), pn = ($('#publicNotes').value||'').trim();
+    if(inc||exc||pn){
+      html += `<div style="margin-top:8px;font-size:12px;color:#4a5161">`;
+      if(inc) html += `<div><b>Included:</b> ${inc}</div>`;
+      if(exc) html += `<div><b>Excluded:</b> ${exc}</div>`;
+      if(pn)  html += `<div><b>Notes:</b> ${pn}</div>`;
+      html += `</div>`;
+    }
+    $('#quoteHtml').innerHTML = html;
+  }
+
+  function renderAudit(options){
+    const tb = $('#auditTable tbody'); tb.innerHTML='';
+    options.forEach(o=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><b>${o.label}</b></td>
+        <td class="right">${money(o.freightSell)}</td>
+        <td class="right">${money(o.freightCost)}</td>
+        <td class="right">${money(o.surSell)}</td>
+        <td class="right">${money(o.surCost)}</td>
+        <td class="right">${money(o.totSell)}</td>
+        <td class="right">${money(o.totCost)}</td>`;
+      tb.appendChild(tr);
+    });
+  }
+
+  // ---------- Branding file uploads
+  window._logoData=''; window._sigData='';
+  $('#logoFile').addEventListener('change', e=>{
+    const f = e.target.files?.[0]; if(!f) return;
+    const r = new FileReader(); r.onload=()=>{ window._logoData = r.result; render(); }; r.readAsDataURL(f);
+  });
+  $('#sigFile').addEventListener('change', e=>{
+    const f = e.target.files?.[0]; if(!f) return;
+    const r = new FileReader(); r.onload=()=>{ window._sigData = r.result; }; r.readAsDataURL(f);
+  });
+
+  // ---------- Email/HTML/PDF export
+  function buildEmailHtml(){
+    const brandName = $('#brandName').value||'DSV';
+    const logo = window._logoData || $('#logoUrl').value || '';
+    const signer = $('#sigName').value||''; const title = $('#sigTitle').value||''; const sig = window._sigData||'';
+    const inner = $('#quoteHtml').innerHTML;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="x-apple-disable-message-reformatting">
+    <title>${brandName} Quote</title>
+    <style>
+      body{margin:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#111319}
+      .wrap{max-width:720px;margin:0 auto;background:#fff;border:1px solid #eee}
+      .hdr{padding:14px 16px;border-bottom:1px solid #eee;display:flex;align-items:center;gap:10px}
+      .brand{font-weight:800;color:#0e1f49}
+      .content{padding:14px 16px}
+      .foot{padding:12px 16px;border-top:1px solid #eee;color:#556;font-size:12px}
+      table{width:100%;border-collapse:collapse}
+      th,td{border-bottom:1px solid #edf0f6;padding:8px 6px;text-align:left;vertical-align:top}
+      thead th{color:#4a4f5c;font-size:12px;text-transform:uppercase;letter-spacing:.3px}
+      .right{text-align:right}
+    </style></head><body>
+      <div class="wrap">
+        <div class="hdr">${logo? `<img src="${logo}" alt="logo" style="height:22px">` : `<div class="brand">${brandName}</div>`}<div style="margin-left:auto;color:#667;font-size:12px">Date: ${today()}</div></div>
+        <div class="content">${inner}</div>
+        <div class="foot">${sig? `<div><img src="${sig}" alt="signature" style="height:36px"></div>`:''}${signer||title? `<div>${signer}${title?', '+title:''}</div>`:''}</div>
+      </div>
+    </body></html>`;
+  }
+  async function exportPDF(){
+    const { jsPDF } = window.jspdf;
+    const node = $('#quoteHtml'); if(!node || !node.innerHTML.trim()){ alert('No quote content yet. Add an option.'); return; }
+    const canvas = await html2canvas(node, {scale:2, backgroundColor:'#ffffff'});
+    const img = canvas.toDataURL('image/png');
+    const pdf = new jsPDF('p','pt','a4');
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+    const w = pageW - 60; const h = canvas.height * w / canvas.width;
+    if(h <= pageH - 60){ pdf.addImage(img,'PNG',30,30,w,h,'','FAST'); }
+    else{
+      // multipage slice
+      const pageCanvas = document.createElement('canvas');
+      const ctx = pageCanvas.getContext('2d');
+      const ratio = w/canvas.width;
+      const pageInnerH = pageH - 60; // inner drawable height
+      const sliceH = Math.floor(pageInnerH/ratio);
+      let sY=0; let page=0;
+      while(sY < canvas.height){
+        const partH = Math.min(sliceH, canvas.height - sY);
+        pageCanvas.width = canvas.width; pageCanvas.height = partH;
+        ctx.clearRect(0,0,pageCanvas.width,pageCanvas.height);
+        ctx.drawImage(canvas, 0, sY, canvas.width, partH, 0, 0, canvas.width, partH);
+        const partImg = pageCanvas.toDataURL('image/png');
+        if(page>0) pdf.addPage();
+        pdf.addImage(partImg, 'PNG', 30, 30, w, partH*ratio, '', 'FAST');
+        sY += partH;
+        page++;
+      }
+    }
+    pdf.save(`Quote_${($('#customer').value||'Customer').replace(/[^a-z0-9]+/gi,'_')}_${today()}.pdf`);
+  }
+  function exportQuote(){
+    const html = buildEmailHtml();
+    const blob = new Blob([html], {type:'text/html'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `Quote_${($('#customer').value||'Customer').replace(/[^a-z0-9]+/gi,'_')}_${today()}.html`;
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+  function composeEmailHtml(){
+    const html = buildEmailHtml();
+    const blob = new Blob([html], {type:'text/html'});
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  }
+
+  // ---------- Map & distances (Leaflet + Nominatim geocode)
+  let map, markersLayer;
+  function ensureMap(){
+    if(map) return map;
+    map = L.map('map');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+    markersLayer = L.layerGroup().addTo(map);
+    map.setView([30,0],2);
+    return map;
+  }
+  async function geocodePlace(q){
+    if(!q) return null;
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url, {headers:{'Accept':'application/json','User-Agent':'dsv-quote-tool'}});
+    if(!res.ok) return null;
+    const data = await res.json();
+    if(!Array.isArray(data) || data.length===0) return null;
+    const p = data[0];
+    return {lat:+p.lat, lon:+p.lon, display:p.display_name};
+  }
+  function haversineMiles(a,b){
+    if(!a||!b) return 0;
+    const R = 3958.7613; // miles
+    const toRad = d=>d*Math.PI/180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLon = toRad(b.lon - a.lon);
+    const la1 = toRad(a.lat), la2 = toRad(b.lat);
+    const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+    return 2*R*Math.asin(Math.sqrt(h));
+  }
+  async function updateMap(){
+    ensureMap(); markersLayer.clearLayers();
+    const o = await geocodePlace($('#origin').value);
+    const d = await geocodePlace($('#destination').value);
+    const pts = [];
+    if(o){ pts.push([o.lat,o.lon]); L.marker([o.lat,o.lon]).addTo(markersLayer).bindPopup('Origin'); }
+    if(d){ pts.push([d.lat,d.lon]); L.marker([d.lat,d.lon]).addTo(markersLayer).bindPopup('Destination'); }
+    if(pts.length){ map.fitBounds(pts, {padding:[20,20]}); }
+    if(o && d){
+      const airMi = haversineMiles({lat:o.lat,lon:o.lon},{lat:d.lat,lon:d.lon});
+      $('#kpiAirDist').textContent = Math.round(airMi).toLocaleString();
+      const roadMi = airMi*1.2; // rough factor
+      $('#kpiRoadDist').textContent = Math.round(roadMi).toLocaleString();
+      const milesInput = $('#miles');
+      if(!milesInput.value) milesInput.value = Math.round(roadMi);
+      render();
+    }
+  }
+
+  // ---------- Draft save/load
+  function collectState(){
+    return {
+      role: $('#userRole').value,
+      brandName: $('#brandName').value, logoUrl: $('#logoUrl').value,
+      sigName: $('#sigName').value, sigTitle: $('#sigTitle').value,
+      _logoData: window._logoData||'', _sigData: window._sigData||'',
+      customer: $('#customer').value, reference: $('#reference').value,
+      origin: $('#origin').value, destination: $('#destination').value,
+      incoterms: $('#incoterms').value, mode: $('#mode').value,
+      validUntil: $('#validUntil').value, miles: $('#miles').value,
+      publicNotes: $('#publicNotes').value, included: $('#included').value, excluded: $('#excluded').value,
+      pieces: $('#pieces').value, actualKg: $('#actualKg').value, cbm: $('#cbm').value,
+      lenCm: $('#lenCm').value, widCm: $('#widCm').value, htCm: $('#htCm').value,
+      airFactor: $('#airFactor').value, cwOverride: $('#cwOverride').value,
+      exwTiers, freight, charges
+    };
+  }
+  function applyState(s){
+    if(!s) return;
+    $('#userRole').value = s.role||'seller'; applyRole();
+    $('#brandName').value = s.brandName||''; $('#logoUrl').value = s.logoUrl||'';
+    $('#sigName').value = s.sigName||''; $('#sigTitle').value = s.sigTitle||'';
+    window._logoData=s._logoData||''; window._sigData=s._sigData||'';
+    $('#customer').value = s.customer||''; $('#reference').value = s.reference||'';
+    $('#origin').value = s.origin||''; $('#destination').value = s.destination||'';
+    $('#incoterms').value = s.incoterms||'EXW'; $('#mode').value = s.mode||'air';
+    $('#validUntil').value = s.validUntil||''; $('#miles').value = s.miles||'';
+    $('#publicNotes').value = s.publicNotes||''; $('#included').value = s.included||''; $('#excluded').value = s.excluded||'';
+    $('#pieces').value = s.pieces||1; $('#actualKg').value = s.actualKg||0; $('#cbm').value = s.cbm||0;
+    $('#lenCm').value = s.lenCm||0; $('#widCm').value = s.widCm||0; $('#htCm').value = s.htCm||0;
+    $('#airFactor').value = s.airFactor||167; $('#cwOverride').value = s.cwOverride||'';
+    exwTiers.length=0; (s.exwTiers||[]).forEach(t=> exwTiers.push(t)); renderExw();
+    freight.length=0; (s.freight||[]).forEach(f=> freight.push(f)); renderFreight();
+    charges.length=0; (s.charges||[]).forEach(c=> charges.push(c)); renderCharges();
+    render();
+  }
+  function saveLocal(){
+    const s = collectState();
+    localStorage.setItem('dsv_quote_draft', JSON.stringify(s));
+    alert('Draft saved');
+  }
+  function loadLocal(){
+    const s = JSON.parse(localStorage.getItem('dsv_quote_draft')||'null');
+    if(!s){ alert('No saved draft'); return; }
+    applyState(s);
+  }
+  function clearLocal(){ localStorage.removeItem('dsv_quote_draft'); alert('Saved draft cleared'); }
+
+  // ---------- Example charges
+  function loadExampleCharges(){
+    clearCharges();
+    [
+      {label:'EXW pickup',unit:'per_kg',rate_sell:0.13,rate_cost:0.08, min:320, applies_to:'all', notes:'Pickup+export+docs+security'},
+      {label:'Door delivery',unit:'per_kg',rate_sell:0.45,rate_cost:0.30, min:180, applies_to:'all', notes:'Dest city'},
+      {label:'Airport transfer',unit:'per_kg',rate_sell:0.30,rate_cost:0.20, min:0, applies_to:'all', notes:''},
+      {label:'Airline handling',unit:'flat',rate_sell:280,rate_cost:220, min:0, applies_to:'all', notes:'Per shipment'},
+      {label:'US import handling',unit:'flat',rate_sell:95,rate_cost:75, min:0, applies_to:'all', notes:'Per shipment'}
+    ].forEach(addCharge);
+    render();
+  }
+
+  // ---------- Parse pasted quote text
+  function parsePastedQuote(){
+    const t = ($('#pasteText').value||'').trim(); if(!t){ $('#parseNotes').textContent='Nothing to parse.'; return; }
+    const notes=[];
+    const get = (re,label,cb)=>{
+      const m = t.match(re); if(m){ cb(m); notes.push(label); }
+    };
+    get(/incoterm[s]?:?\s*(EXW|FCA|FOB|CPT|CIP|DAP|DDP)/i, 'Incoterms', m=> $('#incoterms').value = m[1].toUpperCase());
+    get(/mode:?\s*(air|ocean|ftl)/i, 'Mode', m=> $('#mode').value = m[1].toLowerCase());
+    get(/valid(?:ity)?(?:\s*through|\s*until)?:?\s*(\d{4}-\d{2}-\d{2})/i, 'Validity', m=> $('#validUntil').value = m[1]);
+    get(/origin:?\s*([\w\s,.-]{2,40})/i, 'Origin', m=> $('#origin').value = m[1].trim());
+    get(/dest(?:ination)?:?\s*([\w\s,.-]{2,40})/i, 'Destination', m=> $('#destination').value = m[1].trim());
+    get(/pieces?:?\s*(\d{1,5})/i, 'Pieces', m=> $('#pieces').value = m[1]);
+    get(/(gross|actual)\s*kg?:?\s*(\d+(?:\.\d+)?)/i, 'Actual kg', m=> $('#actualKg').value = m[2]);
+    get(/cbm:?\s*(\d+(?:\.\d+)?)/i, 'CBM', m=> $('#cbm').value = m[1]);
+    get(/dims?:?\s*(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i, 'Dims', m=> { $('#lenCm').value = m[1]; $('#widCm').value = m[2]; $('#htCm').value = m[3]; });
+    get(/miles?:?\s*(\d{2,6})/i, 'Miles', m=> $('#miles').value = m[1]);
+    render();
+    $('#parseNotes').textContent = notes.length? ('Parsed: '+notes.join(', ')) : 'No common fields recognized.';
+  }
+
+  // ---------- Wire defaults and init
+  function init(){
+    // Defaults
+    $('#validUntil').value = $('#validUntil').value || today();
+    // Seed a sample freight row to make PDF/export demo-friendly
+    if(freight.length===0){
+      addFreight({label:'Standard', unit:'per_kg', rate_sell:4.55, rate_cost:2.50, tt:'5d', depart:today(), notes:'Sample'});
+    }
+    render();
+    ensureMap();
+  }
+  window.addEventListener('load', init);
+</script>
+</body>
+</html>
+
